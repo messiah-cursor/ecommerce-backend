@@ -2,10 +2,7 @@ package com.example.ecommerce.cart.service;
 
 import com.example.ecommerce.cart.dto.OrderResponseDTO;
 import com.example.ecommerce.cart.entity.*;
-import com.example.ecommerce.common.exception.CartItemNotFoundException;
-import com.example.ecommerce.common.exception.CartNotFoundException;
-import com.example.ecommerce.common.exception.ProductNotFoundException;
-import com.example.ecommerce.common.exception.UserNotFoundException;
+import com.example.ecommerce.common.exception.*;
 import com.example.ecommerce.cart.repository.CartRepository;
 import com.example.ecommerce.cart.dto.CartItemDTO;
 import com.example.ecommerce.cart.dto.CartResponseDTO;
@@ -34,13 +31,17 @@ public class CartService {
     }
 
 
-    public List<CartItemDTO> convertItemToDTO(List<CartItems> items){
-        List<CartItemDTO> list = new ArrayList<>();
-        for(CartItems item : items){
-            CartItemDTO itemDTO = new CartItemDTO(item);
-            list.add(itemDTO);
+    private List<CartItemDTO> convertItemToDTO(List<CartItems> items){
+        return items.stream().map(CartItemDTO::new).toList();
+    }
+
+    private BigDecimal calculateTotalPrice(Cart cart){
+        BigDecimal totalprice = BigDecimal.ZERO;
+        for (CartItems item : cart.getCartItems()) {
+            BigDecimal subTotal = item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+            totalprice = totalprice.add(subTotal);
         }
-        return list;
+        return totalprice;
     }
 
     public CartResponseDTO getCart(Long userId){
@@ -58,6 +59,10 @@ public class CartService {
 
    @Transactional
     public List<CartItemDTO> addToCart(Long userId, Long productId, Long quantity) {
+       if (quantity < 1) {
+           throw new InvalidQuantity("Quantity must be greater than zero.");
+       }
+
        User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException("user not found."));
        Product product = productRepository.findById(productId).orElseThrow(() -> new ProductNotFoundException("product not found."));
        Cart cart = user.getCart();
@@ -67,23 +72,32 @@ public class CartService {
            user.setCart(cart);
        }
 
-
-        if(product.getStock() < quantity)
-            throw new ProductNotFoundException("Product Out of stock.");
-
-
-       for (CartItems existingItem : cart.getCartItems()) {
-           if (existingItem.getProduct().getId().equals(product.getId())){
-               existingItem.setQuantity(existingItem.getQuantity() + quantity);
-           cartRepository.save(cart);
-           return convertItemToDTO(cart.getCartItems());
+       CartItems existingItem = null;
+       for (CartItems item : cart.getCartItems()) {
+           if (item.getProduct().getId().equals(product.getId())) {
+               existingItem = item;
+               break;
+           }
        }
-   }
-        CartItems newItem = new CartItems(product, quantity);
-       newItem.setCart(cart);
-       newItem.setQuantity(quantity);
-        cart.getCartItems().add(newItem);
-        cartRepository.save(cart);
+
+       Long currentQuantity = existingItem != null? existingItem.getQuantity():0L;
+       Long  newQuantity = currentQuantity + quantity;
+
+       if(newQuantity > product.getStock()){
+           throw new OutOfStockException("Product out of stock.");
+       }
+
+           if (existingItem != null) {
+               existingItem.setQuantity(newQuantity);
+           } else {
+               CartItems newItem = new CartItems(product, newQuantity);
+               newItem.setCart(cart);
+               cart.getCartItems().add(newItem);
+           }
+
+           BigDecimal newTotalPrice = calculateTotalPrice(cart);
+           cart.setTotal(newTotalPrice);
+       cartRepository.save(cart);
         return convertItemToDTO(cart.getCartItems());
     }
 
@@ -100,19 +114,61 @@ public class CartService {
         if(!removed){
           throw new CartItemNotFoundException("Cart item not found.");
         }
+            cart.setTotal(calculateTotalPrice(cart));
             cartRepository.save(cart);
     }
 
-    public List<CartItemDTO> updateQuantity(Long userId, Long productId, Long quantity) {
+
+    public List<CartItemDTO> changeQuantity(Long userId, Long cartItemId, Long change) {
         User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException("user not found."));
-        productRepository.findById(productId).orElseThrow(() -> new ProductNotFoundException("product not found."));
         Cart cart = user.getCart();
         if(cart == null)
             throw new CartNotFoundException("Cart not found.");
 
+        if(cart.getCartItems().isEmpty())
+            throw new EmptyCartException("Cart is Empty.");
+
         boolean found =false;
         for(CartItems item : cart.getCartItems()) {
-            if (item.getProduct().getId().equals(productId)) {
+            if (item.getId().equals(cartItemId)) {
+                long newQuantity = item.getQuantity() + change;
+                if(newQuantity < 1){
+                    throw new InvalidQuantity("Quantity cannot be less than 1.");
+                }
+                if(newQuantity > item.getProduct().getStock()){
+                    throw new OutOfStockException("Out of stock.");
+                }
+                item.setQuantity(newQuantity);
+                found = true;
+                break;
+            }
+        }
+        if(!found)
+            throw new CartItemNotFoundException("Item not found.");
+        cart.setTotal(calculateTotalPrice(cart));
+        cartRepository.save(cart);
+        return convertItemToDTO(cart.getCartItems());
+    }
+
+
+    public List<CartItemDTO> updateQuantity(Long userId, Long cartItemId, Long quantity) {
+        if (quantity < 1) {
+            throw new InvalidQuantity("Quantity must be greater than zero.");
+        }
+        User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException("user not found."));
+        Cart cart = user.getCart();
+        if(cart == null)
+            throw new CartNotFoundException("Cart not found.");
+
+        if(cart.getCartItems().isEmpty())
+            throw new EmptyCartException("Cart is Empty.");
+
+        boolean found =false;
+        for(CartItems item : cart.getCartItems()) {
+            if (item.getId().equals(cartItemId)) {
+                if(quantity > item.getProduct().getStock()){
+                 throw new OutOfStockException("Out of stock.");
+                }
                 item.setQuantity(quantity);
                 found = true;
                 break;
@@ -121,34 +177,23 @@ public class CartService {
         if(!found)
             throw new CartItemNotFoundException("Item not found.");
 
+        cart.setTotal(calculateTotalPrice(cart));
         cartRepository.save(cart);
         return convertItemToDTO(cart.getCartItems());
     }
 
-
+    @Transactional
     public void clearCart(Long userId){
         User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException("user not found."));
         Cart cart = user.getCart();
         if(cart == null)
             throw new CartNotFoundException("Cart not found.");
         cart.getCartItems().clear();
+        cart.setTotal(BigDecimal.ZERO);
         cartRepository.save(cart);
     }
 
-    public BigDecimal calculateTotal(Long userId){
-        User user = userRepository.findById(userId).orElseThrow(()-> new UserNotFoundException("User not Found."));
-        Cart cart = user.getCart();
-        if(cart == null)
-            throw new CartNotFoundException("Cart not found");
-        if(cart.getCartItems().isEmpty()){
-            throw new CartItemNotFoundException("Cart empty.");
-        }
-        BigDecimal total = BigDecimal.ZERO;
-        for(CartItems item : cart.getCartItems()){
-            total = item.getProduct().getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
-        }
-        return total;
-    }
+
 
     private OrderItem convertCartToOrder(CartItems item){
         return new OrderItem(item);
@@ -162,31 +207,32 @@ public class CartService {
         User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException("user not found."));
         Cart cart = user.getCart();
 
-        if(cart == null || cart.getCartItems() == null || cart.getCartItems().isEmpty()){ throw new IllegalStateException("Cart is empty."); }
+        if(cart == null || cart.getCartItems() == null || cart.getCartItems().isEmpty()){ throw new EmptyCartException("Cart is empty."); }
 
         Order order = new Order();
         order.setUser(user);
         order.setStatus(Order.OrderStatus.PENDING);
 
-        //BigDecimal totalPrice = BigDecimal.ZERO;
-
         for(CartItems item : cart.getCartItems()){
+            if(item.getQuantity() > item.getProduct().getStock())
+                throw new OutOfStockException("Product out of stock.");
             OrderItem orderItem = convertCartToOrder(item);
+            item.getProduct().setStock(item.getProduct().getStock() - item.getQuantity());
             orderItem.setOrder(order);
             order.getOrderItems().add(orderItem);
 
-         //   totalPrice = totalPrice.add(item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
-        }
+         }
 
 
-        BigDecimal totalPrice = cart.getCartItems().stream().map(item -> item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()))).reduce(BigDecimal.ZERO,BigDecimal::add);
-
+        //BigDecimal totalPrice = cart.getCartItems().stream().map(item -> item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()))).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal totalPrice = calculateTotalPrice(cart);
         order.setTotalAmount(totalPrice);
 
         Order savedOrder = orderRepository.save(order);
         cart.getCartItems().clear();
+        cart.setTotal(BigDecimal.ZERO);
         cartRepository.save(cart);
         return new OrderResponseDTO(savedOrder);
     }
 
-}
+ }

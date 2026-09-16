@@ -68,9 +68,9 @@ public class GlobalExceptionHandler {
 //    }
 
     @ExceptionHandler({
-            UserNotFoundException.class, ProductNotFoundException.class,
+            UserNotFoundException.class,OutOfStockException.class, ProductNotFoundException.class,
             CartNotFoundException.class,CartItemNotFoundException.class,
-            OrderNotFoundException.class
+            OrderNotFoundException.class,EmptyCartException.class, InvalidQuantity.class
     })
     public ResponseEntity<ApiErrorResponse> handleNotFound(RuntimeException exception, WebRequest request){
         ApiErrorResponse response = new ApiErrorResponse(

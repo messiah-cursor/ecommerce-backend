@@ -1,9 +1,8 @@
 package com.example.ecommerce.cart.controller;
 
-import com.example.ecommerce.cart.dto.CartItemDTO;
-import com.example.ecommerce.cart.dto.CartResponseDTO;
-import com.example.ecommerce.cart.dto.OrderResponseDTO;
+import com.example.ecommerce.cart.dto.*;
 import com.example.ecommerce.cart.service.CartService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/user/cart")
+@RequestMapping("/api")
 public class CartController {
     private final CartService service;
 
@@ -25,10 +24,10 @@ public class CartController {
         return ResponseEntity.ok(response);
     }
 
-    @PostMapping("/add/{userId}/{productId}/{quantity}")
-    public ResponseEntity<List<CartItemDTO>> addToCart(@PathVariable Long userId, @PathVariable Long productId, @PathVariable Long quantity){
-        List<CartItemDTO> updatedCart = service.addToCart(userId, productId, quantity);
-        return ResponseEntity.status(HttpStatus.CREATED).body(updatedCart);
+    @PostMapping("/users/{userId}/cart/items")
+    public ResponseEntity<List<CartItemDTO>> addToCart(@PathVariable Long userId, @Valid @RequestBody AddToCartRequest request){
+        List<CartItemDTO> items = service.addToCart(userId, request.getProductId(), request.getQuantity());
+        return ResponseEntity.status(HttpStatus.CREATED).body(items);
     }
 
     @DeleteMapping("/delete/{userId}/{cartItemId}")
@@ -37,9 +36,15 @@ public class CartController {
         return ResponseEntity.noContent().build();
     }
 
-    @PutMapping("/update/{userId}/{productId}/{quantity}")
-    public ResponseEntity<List<CartItemDTO>> updateQuantity(@PathVariable Long userId, @PathVariable Long productId, @PathVariable Long quantity){
-        List<CartItemDTO> updatedCart = service.updateQuantity(userId, productId, quantity);
+    @PutMapping("/users/{userId}/cart/items/{cartItemId}/quantity")
+    public ResponseEntity<List<CartItemDTO>> changeCartQuantity(@PathVariable Long userId, @PathVariable Long cartItemId, @Valid @RequestBody ChangeQuantityRequest request){
+        List<CartItemDTO> updatedCart = service.changeQuantity(userId, cartItemId, request.getChange());
+        return ResponseEntity.ok(updatedCart);
+    }
+
+    @PutMapping("/update/cart/{userId}")
+    public ResponseEntity<List<CartItemDTO>> updateQuantity(@PathVariable Long userId, @Valid @RequestBody AddToCartRequest request){
+        List<CartItemDTO> updatedCart = service.updateQuantity(userId, request.getProductId(), request.getQuantity());
        return ResponseEntity.ok(updatedCart);
     }
 

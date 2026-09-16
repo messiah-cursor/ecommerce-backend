@@ -34,7 +34,7 @@ public class OrderService {
     public List<OrderResponseDTO> getAllOrder(Long userId){
         User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException("User not found."));
         List<Order> orders = user.getOrders();
-        if(orders.isEmpty())
+        if(orders == null)
             throw new OrderNotFoundException("No order found.");
         List<OrderResponseDTO> newList = new ArrayList<>();
         for(Order item : orders){
@@ -46,7 +46,7 @@ public class OrderService {
     public OrderResponseDTO getOneOrder(Long userId, Long orderId){
         User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException("User not found."));
         Order order = user.getOrder(orderId);
-        if(order == null)
+        if(order.getOrderItems().isEmpty())
             throw new OrderNotFoundException("Order not found.");
         return new OrderResponseDTO(order);
     }
